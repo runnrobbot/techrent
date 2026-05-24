@@ -26,8 +26,25 @@ export default function CartPage() {
     toast.info("Item dihapus dari keranjang.");
   };
 
-  // Helper: hitung subtotal per item dengan defensif (cegah NaN)
-  const lineTotal = (item) => (item.price_per_day || 0) * (item.days || 1) * (item.quantity || 1);
+  // Subtotal per item — defensif terhadap NaN
+  const lineTotal = (item) =>
+    (item.price_per_day || 0) * (item.days || 1) * (item.quantity || 1);
+
+  // Increment quantity dengan clamp ke stock
+  const incrementQty = (item) => {
+    const max = item.stock ?? 99;
+    const next = (item.quantity || 1) + 1;
+    if (next > max) {
+      toast.warning(`Stok tersisa hanya ${max} unit.`);
+      return;
+    }
+    updateCartItem(item.id, { quantity: next });
+  };
+
+  const decrementQty = (item) => {
+    const next = Math.max(1, (item.quantity || 1) - 1);
+    updateCartItem(item.id, { quantity: next });
+  };
 
   return (
     <PageTransition>
@@ -62,50 +79,63 @@ export default function CartPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 20, height: 0 }}
-                      className="bg-white rounded-2xl border border-slate-200 p-4 flex gap-4 shadow-sm"
+                      className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"
                     >
-                      {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt={item.name}
-                          className="w-20 h-20 rounded-xl object-cover bg-slate-100 flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 rounded-xl bg-slate-100 flex-shrink-0 flex items-center justify-center text-slate-300">
-                          <Package className="w-8 h-8" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-800 text-sm mb-1 truncate">{item.name}</h3>
-                        <p className="text-xs text-slate-500 mb-2">{item.store_name || "—"}</p>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-                            <button
-                              aria-label="Kurangi hari"
-                              onClick={() => updateCartItem(item.id, { days: Math.max(1, (item.days || 1) - 1) })}
-                              className="w-7 h-7 rounded-lg bg-white flex items-center justify-center shadow-sm"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="text-sm font-semibold w-8 text-center">{item.days || 1}h</span>
-                            <button
-                              aria-label="Tambah hari"
-                              onClick={() => updateCartItem(item.id, { days: Math.min(30, (item.days || 1) + 1) })}
-                              className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
+                      <div className="flex gap-4">
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.name}
+                            className="w-20 h-20 rounded-xl object-cover bg-slate-100 flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-20 h-20 rounded-xl bg-slate-100 flex-shrink-0 flex items-center justify-center text-slate-300">
+                            <Package className="w-8 h-8" />
                           </div>
-                          <span className="text-sm font-bold text-blue-600">{formatRupiah(lineTotal(item))}</span>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-slate-800 text-sm mb-0.5 truncate">{item.name}</h3>
+                          <p className="text-xs text-slate-500 mb-2">{item.store_name || "—"}</p>
+                          <p className="text-xs text-slate-400 mb-2">
+                            {formatRupiah(item.price_per_day)}/hari
+                            {typeof item.stock === "number" && (
+                              <span className="ml-2 text-slate-400">· stok {item.stock}</span>
+                            )}
+                          </p>
                         </div>
+                        <button
+                          aria-label="Hapus item"
+                          onClick={() => handleRemove(item)}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all self-start"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        aria-label="Hapus item"
-                        onClick={() => handleRemove(item)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all self-start"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                      {/* Steppers: days & quantity */}
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Stepper
+                          label="Durasi sewa"
+                          value={`${item.days || 1} hari`}
+                          onMinus={() => updateCartItem(item.id, { days: Math.max(1, (item.days || 1) - 1) })}
+                          onPlus={()  => updateCartItem(item.id, { days: Math.min(30, (item.days || 1) + 1) })}
+                          minusDisabled={(item.days || 1) <= 1}
+                          plusDisabled={(item.days || 1) >= 30}
+                        />
+                        <Stepper
+                          label="Jumlah unit"
+                          value={`${item.quantity || 1} unit`}
+                          onMinus={() => decrementQty(item)}
+                          onPlus={()  => incrementQty(item)}
+                          minusDisabled={(item.quantity || 1) <= 1}
+                          plusDisabled={typeof item.stock === "number" && (item.quantity || 1) >= item.stock}
+                        />
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span className="text-xs text-slate-500">Subtotal item</span>
+                        <span className="text-sm font-bold text-blue-600">{formatRupiah(lineTotal(item))}</span>
+                      </div>
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -117,7 +147,9 @@ export default function CartPage() {
                   <h3 className="font-bold text-slate-800 mb-4">Ringkasan Pesanan</h3>
                   {cart.map(item => (
                     <div key={item.id} className="flex justify-between text-sm text-slate-600 mb-2">
-                      <span className="truncate mr-2">{item.name} ({item.days || 1}h)</span>
+                      <span className="truncate mr-2">
+                        {item.name} ({item.quantity || 1}×{item.days || 1}h)
+                      </span>
                       <span className="flex-shrink-0 font-medium">{formatRupiah(lineTotal(item))}</span>
                     </div>
                   ))}
@@ -138,5 +170,33 @@ export default function CartPage() {
         </div>
       </main>
     </PageTransition>
+  );
+}
+
+// ─── Stepper kecil reusable ─────────────────────────────────────────────────
+function Stepper({ label, value, onMinus, onPlus, minusDisabled, plusDisabled }) {
+  return (
+    <div className="bg-slate-50 rounded-xl p-2.5">
+      <p className="text-[11px] font-medium text-slate-500 mb-1 px-1">{label}</p>
+      <div className="flex items-center gap-2">
+        <button
+          aria-label={`Kurangi ${label}`}
+          onClick={onMinus}
+          disabled={minusDisabled}
+          className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:border-blue-300 transition-all"
+        >
+          <Minus className="w-3 h-3 text-slate-600" />
+        </button>
+        <span className="flex-1 text-center text-sm font-semibold text-slate-800">{value}</span>
+        <button
+          aria-label={`Tambah ${label}`}
+          onClick={onPlus}
+          disabled={plusDisabled}
+          className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-700 transition-all"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
   );
 }

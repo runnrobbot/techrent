@@ -7,7 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { useConfirm } from "../../context/ConfirmContext";
 import { formatRupiah, CATEGORIES } from "../../lib/data";
-import { supabase, deleteProduct, updateProduct } from "../../lib/supabase";
+import { supabase, deleteProduct, updateProduct, uploadProductImage } from "../../lib/supabase";
 
 // ─── Kondisi sama persis dengan LenderAddProduct ─────────────────────────────
 const CONDITIONS = ["Baru", "Sangat Baik", "Baik", "Cukup"];
@@ -194,19 +194,7 @@ function EditProductModal({ open, product, onClose, onSaved }) {
 
   const uploadNewImage = async () => {
     if (!newImageFile || !user?.id) return null;
-    const ext = newImageFile.name.split(".").pop().toLowerCase();
-    const path = `${user.id}/${Date.now()}.${ext}`;
-    const { data: uploadData, error: uploadErr } = await supabase.storage
-      .from("product-images")
-      .upload(path, newImageFile, { cacheControl: "3600", upsert: false });
-    if (uploadErr) {
-      console.warn("[EditProductModal] upload error:", uploadErr.message);
-      return null;
-    }
-    const { data: { publicUrl } } = supabase.storage
-      .from("product-images")
-      .getPublicUrl(uploadData.path);
-    return publicUrl;
+    return uploadProductImage(newImageFile, user.id);
   };
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));

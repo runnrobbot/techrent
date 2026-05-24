@@ -32,7 +32,9 @@ yarn-error.log*
 # 
 fix-storage-rls.sql
 migration-2026-05-24.sql
+migration-2026-05-25.sql
 migration-lender-orders-fix.sql
 supabase-schema.sql
+CHANGES.md
 
 package-lock.json

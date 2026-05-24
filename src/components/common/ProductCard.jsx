@@ -49,10 +49,15 @@ export default function ProductCard({ product, index = 0 }) {
           <Heart className="w-4 h-4" fill={wishlisted ? "currentColor" : "none"} />
         </button>
 
-        {/* Low-stock badge */}
+        {/* Stock badge */}
         {product.stock > 0 && product.stock <= 2 && (
           <span className="absolute top-3 left-3 bg-red-500 text-white text-[11px] font-bold px-2 py-1 rounded-full">
             Sisa {product.stock}
+          </span>
+        )}
+        {product.stock > 2 && (
+          <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-full border border-slate-200">
+            {product.stock} unit
           </span>
         )}
         {product.stock === 0 && (

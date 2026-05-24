@@ -22,6 +22,17 @@ const saveToStorage = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota / private mode */ }
 };
 
+// ─── Helper: bikin slim slice product untuk disimpan di localStorage ─────
+const slimProduct = (product) => ({
+  id:            product.id,
+  name:          product.name,
+  image_url:     product.image_url,
+  price_per_day: product.price_per_day,
+  lender_id:     product.lender_id,
+  store_name:    product.store?.store_name || product.lender?.name || "",
+  stock:         product.stock ?? 1,
+});
+
 export function CartProvider({ children }) {
   // Hydrate dari localStorage sekali saat init
   const [cart,     setCart]     = useState(() => loadFromStorage(CART_KEY));
@@ -32,35 +43,26 @@ export function CartProvider({ children }) {
   useEffect(() => { saveToStorage(WISHLIST_KEY, wishlist); }, [wishlist]);
 
   // ─── Cart actions ──────────────────────────────────────────────────────
-  //
-  // PENTING: simpan HANYA field yang dibutuhkan ke cart, dan SIMPAN APA
-  // ADANYA dari DB (snake_case). Jangan mix camelCase/snake_case lagi.
   // Field yang dipakai UI: id, name, image_url, price_per_day,
-  //                        lender_id, store?.store_name, stock
-  //
-  // Field cart-specific: quantity, days, startDate, endDate
+  //                        lender_id, store_name, stock
+  // Field cart-specific  : quantity (unit), days (durasi sewa)
 
   const addToCart = useCallback((product, rentOptions = {}) => {
     setCart(prev => {
       const exists = prev.find(i => i.id === product.id);
       if (exists) {
+        // Jika sudah ada, naikkan quantity, dan apply rentOptions kalau ada
+        const nextQty = Math.min(
+          (exists.quantity || 1) + 1,
+          product.stock ?? exists.stock ?? 99
+        );
         return prev.map(i =>
           i.id === product.id
-            ? { ...i, quantity: (i.quantity || 1) + 1, ...rentOptions }
+            ? { ...i, quantity: nextQty, ...rentOptions }
             : i
         );
       }
-      // Simpan slice dari product agar tidak menyimpan blob besar di localStorage
-      const slim = {
-        id:            product.id,
-        name:          product.name,
-        image_url:     product.image_url,
-        price_per_day: product.price_per_day,
-        lender_id:     product.lender_id,
-        store_name:    product.store?.store_name || product.lender?.name || "",
-        stock:         product.stock,
-      };
-      return [...prev, { ...slim, quantity: 1, days: 1, ...rentOptions }];
+      return [...prev, { ...slimProduct(product), quantity: 1, days: 1, ...rentOptions }];
     });
   }, []);
 
@@ -68,8 +70,22 @@ export function CartProvider({ children }) {
     setCart(prev => prev.filter(i => i.id !== id));
   }, []);
 
+  /**
+   * Update fields suka-suka di item cart (quantity, days, dll).
+   * Kalau quantity di-clamp ke stock, dilakukan di sini.
+   */
   const updateCartItem = useCallback((id, updates) => {
-    setCart(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i));
+    setCart(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      const next = { ...i, ...updates };
+      // Clamp quantity ke stok kalau diketahui
+      if (typeof next.stock === "number" && next.stock > 0 && next.quantity > next.stock) {
+        next.quantity = next.stock;
+      }
+      if (next.quantity < 1) next.quantity = 1;
+      if (next.days     < 1) next.days     = 1;
+      return next;
+    }));
   }, []);
 
   const clearCart = useCallback(() => setCart([]), []);
@@ -79,15 +95,7 @@ export function CartProvider({ children }) {
     setWishlist(prev => {
       const exists = prev.find(i => i.id === product.id);
       if (exists) return prev.filter(i => i.id !== product.id);
-      // Simpan slim juga untuk wishlist
-      return [...prev, {
-        id:            product.id,
-        name:          product.name,
-        image_url:     product.image_url,
-        price_per_day: product.price_per_day,
-        lender_id:     product.lender_id,
-        store_name:    product.store?.store_name || product.lender?.name || "",
-      }];
+      return [...prev, slimProduct(product)];
     });
   }, []);
 

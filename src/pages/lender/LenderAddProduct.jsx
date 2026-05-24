@@ -1,11 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { LenderSidebar, PageTransition } from "../../components/common/Layout";
-import { ArrowLeft, Upload, Plus, X, Loader2, CheckCircle, ImagePlus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, X, Loader2, CheckCircle, ImagePlus } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { CATEGORIES } from "../../lib/data";
-import { createProduct, supabase } from "../../lib/supabase";
+import { createProduct, uploadProductImage, fetchStoreByLender } from "../../lib/supabase";
 
 // ─── Form constants ────────────────────────────────────────────────────────
 const CONDITIONS = ["Baru", "Sangat Baik", "Baik", "Cukup"];
@@ -23,7 +23,7 @@ const INITIAL_FORM = {
 
 const INITIAL_SPECS = [""];
 
-const MAX_IMAGES = 5;
+const MAX_IMAGES       = 5;
 const MAX_FILE_SIZE_MB = 5;
 
 export default function LenderAddProduct() {
@@ -33,16 +33,25 @@ export default function LenderAddProduct() {
 
   const [form, setForm]         = useState(INITIAL_FORM);
   const [specs, setSpecs]       = useState(INITIAL_SPECS);
-  const [images, setImages]     = useState([]); // Array of { file, preview }
+  const [images, setImages]     = useState([]); // [{ file, preview }]
+  const [storeId, setStoreId]   = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
+  // ─── Ambil store_id lender agar product bisa di-join dengan store ─────
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchStoreByLender(user.id).then(({ data }) => {
+      if (data?.id) setStoreId(data.id);
+    });
+  }, [user?.id]);
+
   // ─── Setters ────────────────────────────────────────────────────────────
-  const set        = (k, v)    => setForm(prev => ({ ...prev, [k]: v }));
-  const addSpec    = ()        => setSpecs(prev => [...prev, ""]);
-  const setSpec    = (i, v)    => setSpecs(prev => prev.map((s, idx) => idx === i ? v : s));
-  const removeSpec = (i)       => setSpecs(prev => prev.filter((_, idx) => idx !== i));
+  const set        = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+  const addSpec    = ()     => setSpecs(prev => [...prev, ""]);
+  const setSpec    = (i, v) => setSpecs(prev => prev.map((s, idx) => idx === i ? v : s));
+  const removeSpec = (i)    => setSpecs(prev => prev.filter((_, idx) => idx !== i));
 
   const resetForm = () => {
     setForm(INITIAL_FORM);
@@ -93,32 +102,6 @@ export default function LenderAddProduct() {
     processFiles(Array.from(e.dataTransfer.files));
   };
 
-  // ─── Upload ke Supabase Storage ──────────────────────────────────────────
-  const uploadImages = async () => {
-    const urls = [];
-    for (let i = 0; i < images.length; i++) {
-      const { file } = images[i];
-      const ext = file.name.split(".").pop().toLowerCase();
-      const path = `${user.id}/${Date.now()}_${i}.${ext}`;
-      try {
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from("product-images")
-          .upload(path, file, { cacheControl: "3600", upsert: false });
-        if (uploadErr) {
-          console.warn("[LenderAddProduct] upload error:", uploadErr.message);
-          continue;
-        }
-        const { data: { publicUrl } } = supabase.storage
-          .from("product-images")
-          .getPublicUrl(uploadData.path);
-        urls.push(publicUrl);
-      } catch (err) {
-        console.warn("[LenderAddProduct] upload exception:", err);
-      }
-    }
-    return urls;
-  };
-
   // ─── Submit ─────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -136,16 +119,24 @@ export default function LenderAddProduct() {
 
     setLoading(true);
 
-    // Upload gambar ke storage
-    let imageUrls = [];
-    if (images.length > 0) {
-      imageUrls = await uploadImages();
+    // Upload gambar (gunakan helper terpusat — bucket di-handle di sana)
+    const imageUrls = [];
+    for (const { file } of images) {
+      const url = await uploadProductImage(file, user.id);
+      if (url) imageUrls.push(url);
+    }
+
+    if (images.length > 0 && imageUrls.length === 0) {
+      setLoading(false);
+      toast.error("Gagal mengupload foto produk. Cek koneksi atau coba lagi.");
+      return;
     }
 
     const cleanSpecs = specs.map(s => s.trim()).filter(Boolean);
 
     const payload = {
       lender_id:     user.id,
+      store_id:      storeId, // null jika lender belum setup toko
       name:          form.name.trim(),
       brand:         form.brand.trim() || null,
       category:      form.category,
@@ -282,7 +273,7 @@ export default function LenderAddProduct() {
                 </div>
               </div>
 
-              {/* Image upload — BISA DIPAKAI */}
+              {/* Image upload */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-slate-800">Foto Produk</h3>
@@ -311,7 +302,7 @@ export default function LenderAddProduct() {
                   </div>
                 )}
 
-                {/* Drop zone — hanya tampil kalau belum max */}
+                {/* Drop zone */}
                 {images.length < MAX_IMAGES && (
                   <div
                     onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -373,6 +364,9 @@ export default function LenderAddProduct() {
                       onChange={e => set("stock", parseInt(e.target.value, 10) || 1)}
                       className={inputCls}
                     />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Stok akan otomatis berkurang saat ada penyewaan dan kembali saat barang dikembalikan.
+                    </p>
                   </Field>
                 </div>
               </div>

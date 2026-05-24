@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Star, Heart, ShoppingCart, Shield, CheckCircle, Clock, MapPin, Plus, Minus, Loader2 } from "lucide-react";
+import { ArrowLeft, Star, Heart, ShoppingCart, Shield, CheckCircle, Clock, MapPin, Plus, Minus, Loader2, Package } from "lucide-react";
 import { UserNav, PageTransition } from "../../components/common/Layout";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
@@ -12,11 +12,12 @@ export default function ProductDetailPage() {
   const { navigate, pageParams } = useAuth();
   const { addToCart, toggleWishlist, isInWishlist } = useCart();
   const toast = useToast();
-  const [days, setDays] = useState(1);
+  const [days,     setDays]     = useState(1);
+  const [quantity, setQuantity] = useState(1);
   const [addedAnim, setAddedAnim] = useState(false);
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error,   setError]   = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,30 +62,49 @@ export default function ProductDetailPage() {
   );
 
   const wishlisted = isInWishlist(product.id);
-  const total = product.price_per_day * days;
+  const stock = product.stock ?? 0;
+  const isOutOfStock = stock === 0;
+  const total = product.price_per_day * days * quantity;
+
   const specs = Array.isArray(product.specs) ? product.specs
     : typeof product.specs === "object" ? Object.entries(product.specs).map(([k, v]) => `${k}: ${v}`)
     : [];
 
+  const storeName = product.store?.store_name || product.lender?.name || null;
+  const storeCity = product.store?.city || null;
+
   const handleAddToCart = () => {
-    addToCart(product, { days });
+    if (isOutOfStock) {
+      toast.warning("Stok produk ini habis.");
+      return;
+    }
+    addToCart(product, { days, quantity });
     setAddedAnim(true);
     toast.success(`${product.name} ditambahkan ke keranjang.`);
     setTimeout(() => setAddedAnim(false), 2000);
   };
 
   const handleBuyNow = () => {
-    addToCart(product, { days });
+    if (isOutOfStock) {
+      toast.warning("Stok produk ini habis.");
+      return;
+    }
+    addToCart(product, { days, quantity });
     navigate("checkout");
   };
 
   const handleToggleWishlist = () => {
     toggleWishlist(product);
-    if (wishlisted) {
-      toast.info("Dihapus dari wishlist.");
-    } else {
-      toast.success("Ditambahkan ke wishlist.");
+    if (wishlisted) toast.info("Dihapus dari wishlist.");
+    else            toast.success("Ditambahkan ke wishlist.");
+  };
+
+  const incrementQty = () => {
+    if (quantity >= stock) {
+      toast.warning(`Stok tersedia hanya ${stock} unit.`);
+      return;
     }
+    setQuantity(quantity + 1);
   };
 
   return (
@@ -101,7 +121,12 @@ export default function ProductDetailPage() {
               <div className="bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-sm">
                 {product.image_url
                   ? <img src={product.image_url} alt={product.name} className="w-full h-72 md:h-96 object-cover" />
-                  : <div className="w-full h-72 md:h-96 bg-slate-100 flex items-center justify-center text-slate-400 text-sm">Tidak ada gambar</div>
+                  : (
+                    <div className="w-full h-72 md:h-96 bg-slate-100 flex flex-col items-center justify-center text-slate-400 gap-2">
+                      <Package className="w-12 h-12" />
+                      <span className="text-sm">Tidak ada gambar</span>
+                    </div>
+                  )
                 }
               </div>
 
@@ -132,7 +157,7 @@ export default function ProductDetailPage() {
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                   className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
                   <div className="flex items-start justify-between mb-4">
-                    <div>
+                    <div className="min-w-0">
                       {product.rating > 0 && (
                         <div className="flex items-center gap-1 mb-1">
                           <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
@@ -141,14 +166,14 @@ export default function ProductDetailPage() {
                         </div>
                       )}
                       <h1 className="text-xl font-bold text-slate-900">{product.name}</h1>
-                      {product.lender?.store_name && (
+                      {storeName && (
                         <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                          <MapPin className="w-3.5 h-3.5" />{product.lender.store_name}
+                          <MapPin className="w-3.5 h-3.5" />{storeName}{storeCity ? ` · ${storeCity}` : ""}
                         </p>
                       )}
                     </div>
                     <button onClick={handleToggleWishlist}
-                      className={`p-2.5 rounded-xl border transition-all ${wishlisted ? "bg-red-50 border-red-200 text-red-500" : "border-slate-200 text-slate-400 hover:text-red-400"}`}>
+                      className={`p-2.5 rounded-xl border transition-all flex-shrink-0 ${wishlisted ? "bg-red-50 border-red-200 text-red-500" : "border-slate-200 text-slate-400 hover:text-red-400"}`}>
                       <Heart className="w-5 h-5" fill={wishlisted ? "currentColor" : "none"} />
                     </button>
                   </div>
@@ -158,38 +183,71 @@ export default function ProductDetailPage() {
                     <p className="text-3xl font-bold text-blue-700">{formatRupiah(product.price_per_day)}</p>
                   </div>
 
-                  <div className="mb-5">
-                    <label className="text-sm font-semibold text-slate-700 block mb-3">Durasi Sewa</label>
+                  {/* Stok indicator */}
+                  <div className={`flex items-center gap-2 mb-4 px-3 py-2 rounded-xl text-sm ${
+                    isOutOfStock
+                      ? "bg-red-50 text-red-700"
+                      : stock <= 2
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-green-50 text-green-700"
+                  }`}>
+                    <Package className="w-4 h-4" />
+                    {isOutOfStock
+                      ? "Stok habis"
+                      : <>Tersedia <strong>{stock}</strong> unit</>}
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="text-sm font-semibold text-slate-700 block mb-2">Durasi Sewa</label>
                     <div className="flex items-center gap-4 justify-between bg-slate-50 rounded-2xl p-3">
-                      <button onClick={() => setDays(Math.max(1, days - 1))}
-                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-blue-50 hover:border-blue-300 transition-all">
+                      <button onClick={() => setDays(Math.max(1, days - 1))} disabled={isOutOfStock}
+                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-blue-50 hover:border-blue-300 transition-all disabled:opacity-40">
                         <Minus className="w-4 h-4" />
                       </button>
                       <div className="text-center">
                         <span className="text-2xl font-bold text-slate-900">{days}</span>
                         <span className="text-sm text-slate-500 ml-1">hari</span>
                       </div>
-                      <button onClick={() => setDays(Math.min(30, days + 1))}
-                        className="w-9 h-9 rounded-xl bg-blue-600 border border-blue-600 flex items-center justify-center text-white hover:bg-blue-700 transition-all">
+                      <button onClick={() => setDays(Math.min(30, days + 1))} disabled={isOutOfStock}
+                        className="w-9 h-9 rounded-xl bg-blue-600 border border-blue-600 flex items-center justify-center text-white hover:bg-blue-700 transition-all disabled:opacity-40">
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mb-5">
+                    <label className="text-sm font-semibold text-slate-700 block mb-2">Jumlah Unit</label>
+                    <div className="flex items-center gap-4 justify-between bg-slate-50 rounded-2xl p-3">
+                      <button onClick={() => setQuantity(Math.max(1, quantity - 1))} disabled={isOutOfStock || quantity <= 1}
+                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-blue-50 hover:border-blue-300 transition-all disabled:opacity-40">
+                        <Minus className="w-4 h-4" />
+                      </button>
+                      <div className="text-center">
+                        <span className="text-2xl font-bold text-slate-900">{quantity}</span>
+                        <span className="text-sm text-slate-500 ml-1">unit</span>
+                      </div>
+                      <button onClick={incrementQty} disabled={isOutOfStock || quantity >= stock}
+                        className="w-9 h-9 rounded-xl bg-blue-600 border border-blue-600 flex items-center justify-center text-white hover:bg-blue-700 transition-all disabled:opacity-40">
                         <Plus className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between py-3 border-t border-slate-100 mb-5">
-                    <span className="text-sm text-slate-500">Total ({days} hari)</span>
+                    <span className="text-sm text-slate-500">Total ({quantity}×{days} hari)</span>
                     <span className="text-lg font-bold text-slate-900">{formatRupiah(total)}</span>
                   </div>
 
                   <div className="space-y-3">
                     <motion.button onClick={handleAddToCart}
                       animate={addedAnim ? { scale: [1, 0.95, 1] } : {}}
-                      className={`w-full py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all ${addedAnim ? "bg-green-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-200"}`}>
+                      disabled={isOutOfStock}
+                      className={`w-full py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${addedAnim ? "bg-green-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-200"}`}>
                       <ShoppingCart className="w-5 h-5" />
                       {addedAnim ? "Ditambahkan!" : "Tambah ke Keranjang"}
                     </motion.button>
-                    <button onClick={handleBuyNow}
-                      className="w-full py-3.5 bg-white border border-slate-200 text-slate-700 rounded-2xl font-semibold hover:bg-slate-50 transition-all">
+                    <button onClick={handleBuyNow} disabled={isOutOfStock}
+                      className="w-full py-3.5 bg-white border border-slate-200 text-slate-700 rounded-2xl font-semibold hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                       Sewa Sekarang
                     </button>
                   </div>
@@ -198,9 +256,9 @@ export default function ProductDetailPage() {
                 <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm">
                   <div className="space-y-3">
                     {[
-                      { icon: Shield, label: "Asuransi perangkat tersedia", color: "text-blue-600" },
+                      { icon: Shield,      label: "Asuransi perangkat tersedia",         color: "text-blue-600" },
                       { icon: CheckCircle, label: `Kondisi: ${product.condition || "-"}`, color: "text-green-600" },
-                      { icon: Clock, label: "Konfirmasi dalam 1 jam", color: "text-orange-500" },
+                      { icon: Clock,       label: "Konfirmasi dalam 1 jam",              color: "text-orange-500" },
                     ].map(({ icon: Icon, label, color }, i) => (
                       <div key={i} className="flex items-center gap-3">
                         <Icon className={`w-5 h-5 ${color} flex-shrink-0`} />

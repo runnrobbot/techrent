@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AdminSidebar, PageTransition, StatusBadge } from "../../components/common/Layout";
-import { CheckCircle, XCircle, Search, AlertTriangle, Loader2, Package, Users, Eye, ChevronDown, ChevronUp, Building2, MapPin, ImageOff } from "lucide-react";
+import {
+  CheckCircle, XCircle, Search, AlertTriangle, Loader2, Package, Users, Eye,
+  ChevronDown, ChevronUp, Building2, MapPin, ImageOff, Phone, CreditCard,
+  FileText, ExternalLink, Calendar, ShoppingBag,
+} from "lucide-react";
 import { formatRupiah } from "../../lib/data";
 import { useToast } from "../../context/ToastContext";
 import {
-  fetchPendingProducts, fetchPendingStores, fetchAllUsers,
+  fetchPendingProducts, fetchPendingStores, fetchAllUsers, fetchAllTransactions,
   approveProduct, rejectProduct, approveStore, rejectStore,
-  supabase,
+  getDocumentSignedUrl, supabase,
 } from "../../lib/supabase";
 
 // ─── Reject Modal ────────────────────────────────────────────────────────────
@@ -326,6 +330,161 @@ export function AdminProducts() {
   );
 }
 
+// ─── Store Preview Modal ─────────────────────────────────────────────────────
+function StorePreviewModal({ open, store, onClose, onApprove, onReject, actionLoading }) {
+  const [ktpUrl, setKtpUrl] = useState(null);
+  const [ktpLoading, setKtpLoading] = useState(false);
+
+  // Fetch signed URL untuk KTP saat modal dibuka (KTP di bucket private)
+  useEffect(() => {
+    if (!open || !store?.ktp_url) {
+      setKtpUrl(null);
+      return;
+    }
+    setKtpLoading(true);
+    getDocumentSignedUrl(store.ktp_url)
+      .then(url => setKtpUrl(url))
+      .finally(() => setKtpLoading(false));
+  }, [open, store?.ktp_url]);
+
+  if (!store) return null;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={onClose}>
+          <motion.div initial={{ scale: 0.92, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.92, opacity: 0 }}
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-blue-600" />
+                <h3 className="font-bold text-slate-800">Preview Toko</h3>
+              </div>
+              <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all">
+                <XCircle className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Header: nama toko + tanggal */}
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-7 h-7 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-xl font-bold text-slate-900">{store.store_name}</h2>
+                  {store.description && (
+                    <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{store.description}</p>
+                  )}
+                  <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    Diajukan {new Date(store.created_at).toLocaleDateString("id-ID", {
+                      day: "numeric", month: "long", year: "numeric",
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Info lender */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Informasi Lender</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <InfoRow label="Nama"  value={store.lender?.name  || "—"} />
+                  <InfoRow label="Email" value={store.lender?.email || "—"} />
+                  <InfoRow label="HP Toko" value={store.phone || store.lender?.phone || "—"} icon={Phone} />
+                  <InfoRow label="Kota"  value={store.city || "—"}  icon={MapPin} />
+                </div>
+              </div>
+
+              {/* Info bank */}
+              {(store.bank_name || store.bank_account || store.bank_holder) && (
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-1">
+                    <CreditCard className="w-3.5 h-3.5" /> Rekening Pencairan
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <InfoRow label="Bank"        value={store.bank_name    || "—"} />
+                    <InfoRow label="No. Rekening" value={store.bank_account || "—"} />
+                    <InfoRow label="A.n."        value={store.bank_holder  || "—"} />
+                  </div>
+                </div>
+              )}
+
+              {/* KTP */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5" /> Verifikasi Identitas
+                </p>
+                <div className="space-y-2 mb-3">
+                  <InfoRow label="No. KTP" value={store.ktp_number || "—"} />
+                </div>
+                {ktpLoading ? (
+                  <div className="bg-white rounded-xl h-48 flex items-center justify-center text-slate-400">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
+                ) : ktpUrl ? (
+                  <a href={ktpUrl} target="_blank" rel="noopener noreferrer" className="block group">
+                    <div className="relative bg-white rounded-xl overflow-hidden border border-slate-200">
+                      <img src={ktpUrl} alt="KTP" className="w-full max-h-72 object-contain" />
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-white/90 backdrop-blur-sm rounded-lg text-xs font-medium text-slate-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ExternalLink className="w-3 h-3" /> Buka di tab baru
+                      </div>
+                    </div>
+                  </a>
+                ) : store.ktp_url ? (
+                  <div className="bg-white rounded-xl h-32 flex flex-col items-center justify-center text-slate-400 gap-1.5">
+                    <ImageOff className="w-7 h-7" />
+                    <span className="text-xs">Tidak bisa memuat foto KTP</span>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl h-24 flex flex-col items-center justify-center text-slate-400 gap-1">
+                    <ImageOff className="w-6 h-6" />
+                    <span className="text-xs">Belum upload KTP</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-6 py-4 flex gap-3 rounded-b-2xl">
+              <button onClick={onClose}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-700 font-medium rounded-xl text-sm hover:bg-slate-200 transition-all">
+                Tutup
+              </button>
+              <button onClick={() => { onReject(store); onClose(); }} disabled={actionLoading === store.id}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-red-50 text-red-600 font-semibold rounded-xl text-sm hover:bg-red-100 transition-all disabled:opacity-40">
+                <XCircle className="w-4 h-4" /> Tolak
+              </button>
+              <button onClick={() => { onApprove(store.id); onClose(); }} disabled={actionLoading === store.id}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-green-600 text-white font-semibold rounded-xl text-sm hover:bg-green-700 transition-all disabled:opacity-40">
+                {actionLoading === store.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Setujui
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── Reusable little row ────────────────────────────────────────────────────
+function InfoRow({ label, value, icon: Icon }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-0.5 flex items-center gap-1">
+        {Icon && <Icon className="w-3 h-3" />}
+        {label}
+      </p>
+      <p className="text-sm font-medium text-slate-800 break-words">{value}</p>
+    </div>
+  );
+}
+
 // ─── Admin Stores ────────────────────────────────────────────────────────────
 export function AdminStores() {
   const toast = useToast();
@@ -333,6 +492,7 @@ export function AdminStores() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [rejectTarget, setRejectTarget] = useState(null);
+  const [previewStore, setPreviewStore] = useState(null);
 
   useEffect(() => {
     fetchPendingStores().then(({ data, error }) => {
@@ -389,20 +549,31 @@ export function AdminStores() {
               {stores.map(store => (
                 <motion.div key={store.id} layout className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
                   <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-bold text-slate-800">{store.store_name}</h3>
-                      <p className="text-sm text-slate-500">{store.lender?.name || "—"}</p>
-                      <p className="text-xs text-slate-400">{store.lender?.email || "—"}</p>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-slate-800 truncate">{store.store_name}</h3>
+                      <p className="text-sm text-slate-500 truncate">{store.lender?.name || "—"}</p>
+                      <p className="text-xs text-slate-400 truncate">{store.lender?.email || "—"}</p>
+                      {store.city && (
+                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                          <MapPin className="w-3 h-3" /> {store.city}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-400">{new Date(store.created_at).toLocaleDateString("id-ID")}</p>
+                    <p className="text-xs text-slate-400 flex-shrink-0 ml-3">
+                      {new Date(store.created_at).toLocaleDateString("id-ID")}
+                    </p>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setPreviewStore(store)} disabled={actionLoading === store.id}
+                      className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-600 text-sm font-semibold rounded-xl hover:bg-blue-100 transition-all disabled:opacity-40">
+                      <Eye className="w-4 h-4" /> Preview
+                    </button>
                     <button onClick={() => handleApprove(store.id)} disabled={actionLoading === store.id}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-all disabled:opacity-40">
+                      className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-all disabled:opacity-40">
                       {actionLoading === store.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Setujui
                     </button>
                     <button onClick={() => setRejectTarget({ id: store.id, label: store.store_name })} disabled={actionLoading === store.id}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-red-50 text-red-600 text-sm font-semibold rounded-xl hover:bg-red-100 transition-all disabled:opacity-40">
+                      className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 bg-red-50 text-red-600 text-sm font-semibold rounded-xl hover:bg-red-100 transition-all disabled:opacity-40">
                       <XCircle className="w-4 h-4" /> Tolak
                     </button>
                   </div>
@@ -410,6 +581,15 @@ export function AdminStores() {
               ))}
             </div>
           )}
+
+          <StorePreviewModal
+            open={!!previewStore}
+            store={previewStore}
+            onClose={() => setPreviewStore(null)}
+            onApprove={handleApprove}
+            onReject={(s) => setRejectTarget({ id: s.id, label: s.store_name })}
+            actionLoading={actionLoading}
+          />
 
           <RejectModal
             open={!!rejectTarget}
@@ -707,19 +887,161 @@ export function AdminUsers() {
   );
 }
 
+// ─── Transaction Detail Modal ────────────────────────────────────────────────
+function TransactionDetailModal({ open, order, onClose }) {
+  if (!order) return null;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={onClose}>
+          <motion.div initial={{ scale: 0.92, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.92, opacity: 0 }}
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between z-10">
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-blue-600" />
+                <h3 className="font-bold text-slate-800">Detail Transaksi</h3>
+              </div>
+              <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all">
+                <XCircle className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* ID + status */}
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500 mb-0.5">ID Pesanan</p>
+                  <p className="font-mono text-sm text-slate-800 break-all">{order.id}</p>
+                </div>
+                <StatusBadge status={order.status} />
+              </div>
+
+              {/* Produk */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Produk</p>
+                <div className="flex items-center gap-3">
+                  {order.product?.image_url ? (
+                    <img src={order.product.image_url} alt={order.product.name} className="w-14 h-14 rounded-xl object-cover bg-slate-100 flex-shrink-0" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-white flex items-center justify-center text-slate-300 flex-shrink-0">
+                      <Package className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-800 text-sm truncate">{order.product?.name || "—"}</p>
+                    <p className="text-xs text-slate-500">{order.product?.category || "—"}</p>
+                    {order.product?.price_per_day && (
+                      <p className="text-xs text-slate-500">{formatRupiah(order.product.price_per_day)}/hari</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pihak terlibat */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Penyewa</p>
+                  <InfoRow label="Nama"  value={order.user?.name  || "—"} />
+                  <div className="mt-1.5"><InfoRow label="Email" value={order.user?.email || "—"} /></div>
+                  {order.user?.phone && <div className="mt-1.5"><InfoRow label="HP" value={order.user.phone} icon={Phone} /></div>}
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Lender</p>
+                  <InfoRow label="Nama"  value={order.lender?.name  || "—"} />
+                  <div className="mt-1.5"><InfoRow label="Email" value={order.lender?.email || "—"} /></div>
+                  {order.lender?.phone && <div className="mt-1.5"><InfoRow label="HP" value={order.lender.phone} icon={Phone} /></div>}
+                </div>
+              </div>
+
+              {/* Ringkasan order */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Ringkasan Sewa</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <InfoRow label="Jumlah Unit" value={`${order.quantity || 1} unit`} />
+                  <InfoRow label="Durasi"      value={`${order.duration_days} hari`} />
+                  <InfoRow label="Mulai"       value={order.start_date} />
+                  <InfoRow label="Selesai"     value={order.end_date} />
+                  {order.expected_return_date && <InfoRow label="Target Kembali" value={order.expected_return_date} />}
+                  {order.actual_return_date   && <InfoRow label="Kembali Aktual" value={order.actual_return_date} />}
+                  <InfoRow label="Metode Bayar" value={(order.payment_method || "—").toUpperCase()} />
+                  <InfoRow label="Total"       value={<span className="font-bold text-blue-600">{formatRupiah(order.total_price)}</span>} />
+                </div>
+              </div>
+
+              {/* Alamat */}
+              {order.shipping_address && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" /> Alamat Pengiriman
+                  </p>
+                  <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-3 whitespace-pre-line">{order.shipping_address}</p>
+                </div>
+              )}
+
+              {/* Foto serah-terima */}
+              {(order.handover_photo_url || order.return_photo_url) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {order.handover_photo_url && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Foto Serah-Terima</p>
+                      <a href={order.handover_photo_url} target="_blank" rel="noopener noreferrer">
+                        <img src={order.handover_photo_url} alt="handover" className="w-full h-44 object-cover rounded-xl border border-slate-200 hover:opacity-90 transition-opacity" />
+                      </a>
+                    </div>
+                  )}
+                  {order.return_photo_url && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Foto Pengembalian</p>
+                      <a href={order.return_photo_url} target="_blank" rel="noopener noreferrer">
+                        <img src={order.return_photo_url} alt="return" className="w-full h-44 object-cover rounded-xl border border-slate-200 hover:opacity-90 transition-opacity" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {order.notes && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Catatan</p>
+                  <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-3 whitespace-pre-line">{order.notes}</p>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-400">
+                Dibuat: {new Date(order.created_at).toLocaleString("id-ID")}
+              </p>
+            </div>
+
+            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-6 py-4">
+              <button onClick={onClose}
+                className="w-full py-2.5 bg-slate-100 text-slate-700 font-medium rounded-xl text-sm hover:bg-slate-200 transition-all">
+                Tutup
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 // ─── Admin Transactions ───────────────────────────────────────────────────────
 export function AdminTransactions() {
   const toast = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch]   = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [detailOrder, setDetailOrder]   = useState(null);
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*, product:product_id(name), user:user_id(name), lender:lender_id(name)")
-        .order("created_at", { ascending: false })
-        .limit(50);
+      const { data, error } = await fetchAllTransactions(100);
       if (error) toast.error("Gagal memuat data transaksi.");
       setOrders(data || []);
       setLoading(false);
@@ -727,19 +1049,53 @@ export function AdminTransactions() {
     load();
   }, []); // eslint-disable-line
 
+  const STATUSES = ["all", "pending", "confirmed", "shipped", "active", "returned", "completed", "cancelled"];
+
+  const filtered = orders.filter(o => {
+    if (statusFilter !== "all" && o.status !== statusFilter) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      o.id.toLowerCase().includes(q) ||
+      o.product?.name?.toLowerCase().includes(q) ||
+      o.user?.name?.toLowerCase().includes(q) ||
+      o.lender?.name?.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <PageTransition>
       <div className="flex min-h-screen bg-slate-50">
         <AdminSidebar activePage="admin-transactions" />
         <main className="flex-1 lg:ml-64 p-5 md:p-8 pt-16 md:pt-16 lg:pt-8">
-          <h1 className="text-2xl font-bold text-slate-900 mb-6">Transaksi</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Transaksi</h1>
+          <p className="text-slate-500 text-sm mb-6">Pantau seluruh transaksi penyewaan di platform.</p>
+
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Toolbar */}
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-400 transition-all"
+                  placeholder="Cari ID, produk, penyewa, atau lender..." />
+              </div>
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-400 transition-all">
+                {STATUSES.map(s => (
+                  <option key={s} value={s}>{s === "all" ? "Semua status" : s}</option>
+                ))}
+              </select>
+            </div>
+
             {loading ? (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-blue-600 animate-spin" /></div>
-            ) : orders.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <div className="py-16 text-center text-slate-400">
                 <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Belum ada transaksi.</p>
+                <p className="text-sm">
+                  {search || statusFilter !== "all" ? "Tidak ada transaksi yang cocok." : "Belum ada transaksi."}
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -752,10 +1108,11 @@ export function AdminTransactions() {
                       <th className="px-4 py-3 text-left hidden lg:table-cell">Lender</th>
                       <th className="px-4 py-3 text-right">Total</th>
                       <th className="px-4 py-3 text-center">Status</th>
+                      <th className="px-4 py-3 text-center">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {orders.map(t => (
+                    {filtered.map(t => (
                       <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 text-xs font-mono text-slate-500">{t.id.slice(0, 8)}…</td>
                         <td className="px-4 py-4 text-sm text-slate-700 font-medium hidden sm:table-cell">{t.user?.name || "—"}</td>
@@ -763,6 +1120,13 @@ export function AdminTransactions() {
                         <td className="px-4 py-4 text-sm text-slate-600 hidden lg:table-cell">{t.lender?.name || "—"}</td>
                         <td className="px-4 py-4 text-sm font-bold text-slate-800 text-right">{formatRupiah(t.total_price)}</td>
                         <td className="px-4 py-4 text-center"><StatusBadge status={t.status} /></td>
+                        <td className="px-4 py-4 text-center">
+                          <button onClick={() => setDetailOrder(t)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition-all">
+                            <Eye className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Detail</span>
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -770,6 +1134,12 @@ export function AdminTransactions() {
               </div>
             )}
           </div>
+
+          <TransactionDetailModal
+            open={!!detailOrder}
+            order={detailOrder}
+            onClose={() => setDetailOrder(null)}
+          />
         </main>
       </div>
     </PageTransition>

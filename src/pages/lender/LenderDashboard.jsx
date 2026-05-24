@@ -9,11 +9,18 @@ import { supabase } from "../../lib/supabase";
 
 // ─── Helper: aggregate stats dari list orders + products ────────────────
 const computeStats = (products, orders) => {
+  // Revenue: ambil semua order yang sudah confirmed (lender sudah setuju
+  // menerima order). pending = belum di-acc lender, cancelled = tidak hitung.
+  const earningStatuses = ["confirmed", "shipped", "active", "returned", "completed"];
   const revenue = orders
-    .filter(o => ["completed", "active"].includes(o.status))
+    .filter(o => earningStatuses.includes(o.status))
     .reduce((sum, o) => sum + (o.total_price || 0), 0);
 
-  const activeOrders = orders.filter(o => o.status === "active").length;
+  // Aktif: penyewaan yang sedang berjalan (sudah diterima penyewa)
+  const activeOrders  = orders.filter(o => o.status === "active").length;
+  // Order yang butuh attention lender (perlu di-acc / disiapkan / dikirim)
+  const pendingOrders = orders.filter(o => ["pending", "confirmed", "shipped"].includes(o.status)).length;
+  const completedOrders = orders.filter(o => o.status === "completed").length;
 
   const productsWithRating = products.filter(p => p.rating > 0);
   const avgRating = productsWithRating.length
@@ -25,6 +32,9 @@ const computeStats = (products, orders) => {
   return {
     revenue,
     activeOrders,
+    pendingOrders,
+    completedOrders,
+    totalOrders:   orders.length,
     totalProducts: products.length,
     rating:        avgRating,
     reviewCount,
@@ -35,7 +45,10 @@ export default function LenderDashboard() {
   const { navigate, user, profile } = useAuth();
   const toast = useToast();
   const [products, setProducts] = useState([]);
-  const [stats, setStats] = useState({ revenue: 0, activeOrders: 0, totalProducts: 0, rating: 0, reviewCount: 0 });
+  const [stats, setStats] = useState({
+    revenue: 0, activeOrders: 0, pendingOrders: 0, completedOrders: 0,
+    totalOrders: 0, totalProducts: 0, rating: 0, reviewCount: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -84,20 +97,22 @@ export default function LenderDashboard() {
     {
       label: "Total Pendapatan",
       value: formatRupiah(stats.revenue),
-      sub:   "dari pesanan selesai",
+      sub:   `dari ${stats.totalOrders} pesanan`,
       icon:  DollarSign,
       color: "text-green-600 bg-green-50",
     },
     {
       label: "Penyewaan Aktif",
-      value: `${stats.activeOrders} Aktif`,
-      sub:   "saat ini berjalan",
+      value: `${stats.activeOrders} aktif`,
+      sub:   stats.pendingOrders > 0
+              ? `${stats.pendingOrders} menunggu tindakan`
+              : "saat ini berjalan",
       icon:  ShoppingBag,
       color: "text-blue-600 bg-blue-50",
     },
     {
       label: "Total Produk",
-      value: `${stats.totalProducts} Produk`,
+      value: `${stats.totalProducts} produk`,
       sub:   `${approved} disetujui`,
       icon:  Package,
       color: "text-purple-600 bg-purple-50",
